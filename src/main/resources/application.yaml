@@ -1,0 +1,12 @@
+server:
+  port: 8082
+
+bot:
+  username: chat_gpt_kma_bot
+  token: <token>
+
+openai:
+  model: gpt-4o-mini
+  api:
+    url: https://api.openai.com/v1/chat/completions
+    key: <openapi-key>
