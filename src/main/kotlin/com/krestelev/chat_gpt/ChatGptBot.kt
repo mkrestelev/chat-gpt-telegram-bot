@@ -39,7 +39,7 @@ class ChatGptBot(
         if (userInfo.containsKey(chatId)) {
             val entry = userInfo[chatId]
             entry?.let {
-                val currentCount: Int? = it[userInput.message.chat.userName]
+                val currentCount: Int? = it["User ${userInput.message.chat.userName} with name ${userInput.message.chat.firstName}"]
                 currentCount?.let { count ->
                     it[userInput.message.chat.userName] = count.inc()
                 }
