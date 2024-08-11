@@ -128,7 +128,7 @@ class ChatGptBot(
         execute(sendMessage)
     }
 
-    @Scheduled(cron = "*/15 * * * * *")
+    @Scheduled(cron = "1 0 0 * * *")
     fun clearOldHistory() {
         userContext.values.forEach { it.clear() }
         saveUserInfo()
