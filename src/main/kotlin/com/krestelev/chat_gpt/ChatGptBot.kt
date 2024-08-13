@@ -27,7 +27,7 @@ class ChatGptBot(
     @Value("\${openai.api.url}") val openAiApiUrl: String,
     val restTemplate: RestTemplate,
     val userContext: MutableMap<Long, MutableList<Message>> = mutableMapOf(),
-    var userInfo: MutableMap<Long, MutableMap<String, Int>> = mutableMapOf()
+    var userInfos: MutableMap<Long, MutableMap<String, Int>> = mutableMapOf()
 ): TelegramLongPollingBot(botToken) {
 
     override fun getBotUsername(): String = botName
@@ -36,27 +36,30 @@ class ChatGptBot(
         val chatId = userInput.message.chatId
         val prompt = userInput.message.text
 
-        if (userInfo.containsKey(chatId)) {
-            val entry = userInfo[chatId]
+        val userInfo = "User ${userInput.message.chat.userName} with name ${userInput.message.chat.firstName}"
+        if (userInfos.containsKey(chatId)) {
+            val entry = userInfos[chatId]
             entry?.let {
-                val currentCount: Int? = it["User ${userInput.message.chat.userName} with name ${userInput.message.chat.firstName}"]
+                val currentCount: Int? = it[userInfo]
                 currentCount?.let { count ->
-                    it[userInput.message.chat.userName] = count.inc()
+                    it[userInfo] = count.inc()
                 }
             }
         } else {
-            userInfo[chatId] = mutableMapOf(userInput.message.chat.userName to 0)
+            userInfos[chatId] = mutableMapOf(userInfo to 0)
         }
 
-        if (prompt == "/clear") {
-             userContext[chatId]?.clear()
-             sendMessage("Context is cleared \\| Контекст очищен", chatId, true)
-        } else {
-            handlePrompt(prompt, chatId)
+        when (prompt) {
+            "/clear" -> {
+                userContext[chatId]?.clear()
+                sendMessage("Context is cleared \\| Контекст очищен", chatId, true)
+            }
+            "/get-user-statistics" -> sendMessage(getDailyLog(), chatId, false)
+            else -> handleCommon(prompt, chatId)
         }
     }
 
-    fun handlePrompt(prompt: String, chatId: Long) {
+    fun handleCommon(prompt: String, chatId: Long) {
         val message = Message("user", prompt)
         addMessageToContext(chatId, message)
 
@@ -68,7 +71,11 @@ class ChatGptBot(
             response?.choices?.let {
                 if (it.isNotEmpty()) {
                     val responseMessage = it.first().message.content
-                    sendMessage(convertToTelegramMarkdownV2(responseMessage), chatId, true)
+                    try {
+                        sendMessage(convertToTelegramMarkdownV2(responseMessage), chatId, true)
+                    } catch (e: Exception) {
+                        sendMessage(responseMessage, chatId, false)
+                    }
                     userContext[chatId]?.add(Message("assistant", responseMessage))
                 }
             }
@@ -132,19 +139,23 @@ class ChatGptBot(
     fun clearOldHistory() {
         userContext.values.forEach { it.clear() }
         saveUserInfo()
-        userInfo = mutableMapOf()
+        userInfos = mutableMapOf()
     }
 
     fun saveUserInfo() {
-        val date = LocalDate.now(ZoneId.of("Europe/Moscow")).format(DateTimeFormatter.ISO_LOCAL_DATE)
-        val users = userInfo.entries.joinToString(", ") { (key, value) -> "$key - ${value.keys.first()} (${value.values.first()})\n" }
-        val dayLog = "$date: $users"
-        if (users.isNotEmpty()) {
-            sendMessage(dayLog, 531814574, false)
-            FileUtils.writeStringToFile(ResourceUtils.getFile("./users.txt"), dayLog,
+        val dailyLog = getDailyLog()
+        if (dailyLog.isNotEmpty()) {
+            FileUtils.writeStringToFile(ResourceUtils.getFile("./users.txt"), dailyLog,
                 StandardCharsets.UTF_8, true)
         }
+    }
 
+    private fun getDailyLog(): String {
+        val date = LocalDate.now(ZoneId.of("Europe/Moscow")).format(DateTimeFormatter.ISO_LOCAL_DATE)
+        val usersLog = userInfos.entries.joinToString(", ") {
+                (key, value) -> "${value.keys.first()} (chatId - $key) has performed ${value.values.first()} requests\n"
+        }
+        return "$date: $usersLog"
     }
 
 }
