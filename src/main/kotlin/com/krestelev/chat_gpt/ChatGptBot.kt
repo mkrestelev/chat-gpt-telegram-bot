@@ -52,8 +52,9 @@ class ChatGptBot(
         when (prompt) {
             "/clear" -> {
                 userContext[chatId]?.clear()
-                sendMessage("Context is cleared \\| Контекст очищен", chatId, true)
+                sendMessage("История запросов очищена", chatId, true)
             }
+            "/info" -> sendMessage("Этот бот использует модель OpenAI *${openAiModel.replace("-", "\\-").replace(".", "\\.")}*\\. Чтобы иметь возможность не просто отвечать на вопросы, а вести полноценный диалог, он запоминает историю о 15 предыдущих запросах\\. История запросов очищается каждый день\\. Также, её можно очистить через меню\\. Это полезно, когда ты начинаешь новый диалог или задаешь вопрос по другой теме\\.", chatId, true)
             "/get-user-statistics" -> sendMessage(getDailyLog(), chatId, false)
             else -> handleCommon(prompt, chatId)
         }
@@ -72,8 +73,9 @@ class ChatGptBot(
                 if (it.isNotEmpty()) {
                     val responseMessage = it.first().message.content
                     try {
-                        sendMessage(convertToTelegramMarkdownV2(responseMessage), chatId, true)
+                        sendMessage(escapeMarkdownV2(responseMessage), chatId, true)
                     } catch (e: Exception) {
+                        e.printStackTrace()
                         sendMessage(responseMessage, chatId, false)
                     }
                     userContext[chatId]?.add(Message("assistant", responseMessage))
@@ -83,48 +85,46 @@ class ChatGptBot(
     }
 
     fun addMessageToContext(chatId: Long, message: Message) {
+        val systemPrompt = """
+    You are a helpful assistant generating responses for a Telegram bot. Format all responses in plain text, avoiding any Markdown syntax (e.g., no #, ##, *, **, _, __, ```, etc.) except for the following Telegram-compatible formatting:
+
+    Use _text_ for italic text.
+    Use *text* for bold text.
+    Use __text__ for underlined text.
+    Do not use any other formatting, such as code blocks, lists, headers, or links in Markdown format. If a link is needed, provide it as plain text (e.g., https://example.com). Ensure the response is clear, concise, and suitable for direct use in a Telegram chat.
+""".trimIndent()
+
         if (userContext.containsKey(chatId)) {
             userContext[chatId]?.add(message)
         } else {
-            userContext[chatId] = mutableListOf(message)
+            userContext[chatId] = mutableListOf(
+                Message("system", systemPrompt),
+                message
+            )
         }
     }
 
     fun clearExceedingHistory(chatId: Long) {
-        userContext[chatId]?.let {
-            if (it.size >= 15) {
-                for (i in 1..5) {
-                    userContext[chatId]?.removeAt(0)
+        userContext[chatId]?.let { context ->
+            if (context.size >= 15) {
+                var messagesRemoved = 0
+                val index = 1 // Start after system message at index 0
+                while (messagesRemoved < 5 && index < context.size) {
+                    context.removeAt(index)
+                    messagesRemoved++
                 }
-
             }
         }
     }
 
-    fun convertToTelegramMarkdownV2(input: String): String {
-        var result = input
-
-        result = result.replace(Regex("#### (.+)"), "*$1*")  // Convert H4 to bold
-        result = result.replace(Regex("### (.+)"), "*$1*")   // Convert H3 to bold
-        result = result.replace(Regex("## (.+)"), "*$1*")    // Convert H2 to bold
-        result = result.replace(Regex("# (.+)"), "*$1*")     // Convert H1 to bold
-
-        // temporarily replace '**' with a placeholder to avoid conflict when replacing '*'
-        result = result.replace("**", "%%BOLD%%")
-
-        // replace remaining '*' (for italic) with '_'
-        result = result.replace("*", "_")
-
-        // replace the placeholder '%%BOLD%%' with '*' for bold
-        result = result.replace("%%BOLD%%", "*")
-
-        // escape special characters used by Telegram Markdown V2
-        val charactersToEscape = listOf('[', ']', '(', ')', '`', '>', '~', '#', '+', '-', '=', '|', '{', '}', '.', '!')
-        charactersToEscape.forEach { char ->
-            result = result.replace(char.toString(), "\\$char")
+    fun escapeMarkdownV2(text: String): String {
+        val charsToEscape = listOf('[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!')
+        return buildString {
+            for (char in text) {
+                if (char in charsToEscape) append('\\')
+                append(char)
+            }
         }
-
-        return result
     }
 
     fun sendMessage(text: String, chatId: Long, enableMarkdown: Boolean) {
@@ -152,7 +152,9 @@ class ChatGptBot(
 
     private fun getDailyLog(): String {
         val date = LocalDate.now(ZoneId.of("Europe/Moscow")).format(DateTimeFormatter.ISO_LOCAL_DATE)
-        val usersLog = userInfos.entries.joinToString(", ") {
+        val usersLog = userInfos.entries
+            .filter { it.value.values.firstOrNull() != 0 }
+            .joinToString(", ") {
                 (key, value) -> "${value.keys.first()} (chatId - $key) has performed ${value.values.first()} requests\n"
         }
         return "$date: $usersLog"

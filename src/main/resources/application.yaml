@@ -6,7 +6,7 @@ bot:
   token: <token>
 
 openai:
-  model: gpt-4o-mini
+  model: gpt-4.1-mini
   api:
     url: https://api.openai.com/v1/chat/completions
     key: <openapi-key>
